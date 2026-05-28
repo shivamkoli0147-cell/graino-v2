@@ -1,0 +1,229 @@
+import { useState } from "react";
+import { setCustomerSession, clearCustomerSession, type CustomerSession } from "../lib/utils";
+import { MapPicker } from "../components/kisan/MapPicker";
+
+interface CustomerProfileProps {
+  customer: CustomerSession;
+  onUpdate: (c: CustomerSession) => void;
+  onLogout: () => void;
+  onClose: () => void;
+  onGoSeller: () => void;
+}
+
+const DEFAULT_LAT = 25.9797;
+const DEFAULT_LNG = 78.2039;
+
+export function CustomerProfile({ customer, onUpdate, onLogout, onClose, onGoSeller }: CustomerProfileProps) {
+  const [name, setName] = useState(customer.name);
+  const [address, setAddress] = useState(customer.address || "");
+  const [lat, setLat] = useState(customer.lat || DEFAULT_LAT);
+  const [lng, setLng] = useState(customer.lng || DEFAULT_LNG);
+  const [showMap, setShowMap] = useState(false);
+  const [locating, setLocating] = useState(false);
+  const [locErr, setLocErr] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [sellerTaps, setSellerTaps] = useState(0);
+
+  const handleSave = async () => {
+    setSaving(true);
+    const updated: CustomerSession = {
+      ...customer,
+      name: name.trim() || customer.name,
+      address: address.trim(),
+      lat, lng,
+    };
+    // Save to DB
+    try {
+      await fetch(`/api/customers/${customer.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: updated.name, address: updated.address, lat, lng }),
+      });
+    } catch { /* silent — save to localStorage anyway */ }
+    setCustomerSession(updated);
+    onUpdate(updated);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1800);
+  };
+
+  const useLocation = () => {
+    if (!navigator.geolocation) { setLocErr("इस browser में location support नहीं है"); return; }
+    setLocating(true);
+    setLocErr("");
+    navigator.geolocation.getCurrentPosition(
+      async pos => {
+        const { latitude, longitude } = pos.coords;
+        setLat(latitude); setLng(longitude);
+        setShowMap(true);
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`,
+            { headers: { "Accept-Language": "hi,en" } }
+          );
+          const data = await res.json() as {
+            address?: { road?: string; hamlet?: string; village?: string; town?: string; county?: string; state?: string }
+          };
+          const a = data.address || {};
+          const parts = [a.road || a.hamlet, a.village || a.town, a.county].filter(Boolean);
+          if (parts.length) setAddress(parts.join(", "));
+        } catch { /* use coords */ }
+        setLocating(false);
+      },
+      err => {
+        setLocErr(err.code === 1 ? "Location deny हो गया। Settings में allow करें।" : "Location नहीं मिला");
+        setLocating(false);
+      },
+      { timeout: 10000, enableHighAccuracy: true }
+    );
+  };
+
+  const handleSellerTap = () => {
+    const next = sellerTaps + 1;
+    setSellerTaps(next);
+    if (next >= 5) { setSellerTaps(0); onGoSeller(); }
+  };
+
+  const initial = (customer.name || "?")[0].toUpperCase();
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div onClick={onClose} style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)",
+        zIndex: 900, backdropFilter: "blur(2px)",
+      }} />
+
+      {/* Panel */}
+      <div style={{
+        position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
+        width: "100%", maxWidth: 390, zIndex: 901,
+        background: "white", borderRadius: "24px 24px 0 0",
+        boxShadow: "0 -8px 40px rgba(0,0,0,0.2)",
+        display: "flex", flexDirection: "column",
+        maxHeight: "92vh", overflowY: "auto",
+      }}>
+        {/* Handle */}
+        <div style={{ display: "flex", justifyContent: "center", padding: "12px 0 4px" }}>
+          <div style={{ width: 40, height: 4, borderRadius: 2, background: "#E5DDD0" }} />
+        </div>
+
+        <div style={{ padding: "8px 20px 32px" }}>
+          {/* Avatar */}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 20 }}>
+            <div style={{
+              width: 72, height: 72, borderRadius: "50%",
+              background: "linear-gradient(135deg,#2D6A2D,#4A9B4A)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 30, color: "white", fontWeight: 800, marginBottom: 8,
+            }}>{initial}</div>
+            <div style={{ fontWeight: 800, fontSize: 18, color: "#1C1C1C" }}>{customer.name}</div>
+            <div style={{ fontSize: 13, color: "#777", marginTop: 2 }}>📱 {customer.phone} • 🏘 {customer.village}</div>
+          </div>
+
+          {/* Name */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 5 }}>आपका नाम</div>
+            <input
+              value={name} onChange={e => setName(e.target.value)}
+              placeholder="अपना पूरा नाम लिखें"
+              style={{
+                width: "100%", boxSizing: "border-box",
+                border: "1.5px solid #E5DDD0", borderRadius: 12,
+                padding: "11px 14px", fontFamily: "'Baloo 2',sans-serif",
+                fontSize: 15, outline: "none", background: "#FAFAF8",
+              }}
+            />
+          </div>
+
+          {/* Address */}
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 5 }}>
+              📍 Delivery Address
+            </div>
+            <textarea
+              value={address} onChange={e => setAddress(e.target.value)}
+              placeholder="घर का पता, गली, मोहल्ला, landmark..."
+              rows={3}
+              style={{
+                width: "100%", boxSizing: "border-box",
+                border: "1.5px solid #E5DDD0", borderRadius: 12,
+                padding: "11px 14px", fontFamily: "'Baloo 2',sans-serif",
+                fontSize: 14, outline: "none", background: "#FAFAF8",
+                resize: "none", lineHeight: 1.5,
+              }}
+            />
+          </div>
+
+          {/* Location button */}
+          <button onClick={useLocation} disabled={locating} style={{
+            width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            background: locating ? "#F0EDE8" : "#E8F5E8", color: locating ? "#999" : "#2D6A2D",
+            border: "none", borderRadius: 12, padding: "10px 0",
+            fontFamily: "'Baloo 2',sans-serif", fontWeight: 700, fontSize: 13,
+            cursor: locating ? "default" : "pointer", marginBottom: 6,
+          }}>
+            <span style={{ fontSize: 16 }}>{locating ? "⏳" : "📍"}</span>
+            {locating ? "Location मिल रहा है..." : "Current Location Use करें"}
+          </button>
+          {locErr && <div style={{ fontSize: 12, color: "#dc2626", marginBottom: 6, paddingLeft: 4 }}>{locErr}</div>}
+
+          {/* Map toggle */}
+          <div style={{ marginBottom: 14 }}>
+            <button onClick={() => setShowMap(v => !v)} style={{
+              width: "100%", background: "#F0EDE8", color: "#555",
+              border: "none", borderRadius: 12, padding: "9px 0",
+              fontFamily: "'Baloo 2',sans-serif", fontWeight: 700, fontSize: 13,
+              cursor: "pointer",
+            }}>
+              {showMap ? "🗺️ Map बंद करें ▲" : "🗺️ Map पर Pin देखें ▼"}
+            </button>
+            {showMap && (
+              <div style={{ marginTop: 8 }}>
+                <MapPicker lat={lat} lng={lng} onChange={(la, lo) => { setLat(la); setLng(lo); }} height={200} />
+                <div style={{ fontSize: 11, color: "#777", marginTop: 4, paddingLeft: 2 }}>
+                  📐 {lat.toFixed(5)}, {lng.toFixed(5)}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Save */}
+          <button onClick={handleSave} disabled={saving} style={{
+            width: "100%", background: saved ? "#4A9B4A" : saving ? "#ccc" : "#2D6A2D", color: "white",
+            border: "none", borderRadius: 14, padding: "13px 0",
+            fontFamily: "'Baloo 2',sans-serif", fontWeight: 800, fontSize: 16,
+            cursor: saving ? "default" : "pointer", marginTop: 4, marginBottom: 16,
+            transition: "background 0.3s",
+          }}>
+            {saving ? "Save हो रहा है..." : saved ? "✓ Save हो गया!" : "Save करें"}
+          </button>
+
+          {/* Divider */}
+          <div style={{ borderTop: "1px solid #F0EDE8", marginBottom: 16 }} />
+
+          {/* Logout */}
+          <button onClick={() => { clearCustomerSession(); onLogout(); }} style={{
+            width: "100%", background: "#FEF2F2", color: "#dc2626",
+            border: "none", borderRadius: 12, padding: "11px 0",
+            fontFamily: "'Baloo 2',sans-serif", fontWeight: 700, fontSize: 14,
+            cursor: "pointer", marginBottom: 20,
+          }}>
+            Logout करें
+          </button>
+
+          {/* Hidden seller access — tap 5× */}
+          <div style={{ textAlign: "center" }}>
+            <button onClick={handleSellerTap} style={{
+              background: "none", border: "none", cursor: "pointer",
+              color: "#CCC", fontSize: 11, fontFamily: "'Baloo 2',sans-serif",
+            }}>
+              {sellerTaps > 0 ? `${5 - sellerTaps} और बार tap करें...` : "KisanDirect v1.0"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}

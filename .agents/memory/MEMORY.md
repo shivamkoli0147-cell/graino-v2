@@ -1,0 +1,3 @@
+- [OTP integration](otp-integration.md) — Fast2SMS real OTP with in-memory store; dev mode logs OTP to console if SMS fails
+- [Seller auth](seller-auth.md) — SELLER_PHONE env var (default 9999999999) must be set to Rohit's real number for prod OTP login
+- [App architecture](app-architecture.md) — pnpm monorepo; API on :8080, frontend on :21034; backend: kisanRoutes.ts; frontend: App.tsx state machine
